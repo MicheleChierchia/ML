@@ -121,16 +121,51 @@ def recommend_advanced(played_games: list[str], blacklist: list[str] = None, n: 
         top_k = candidates.sort_values('final_score', ascending=False).head(slots)
         recommendations.append(top_k)
     
-    # 5. Final Assemble
+    # 5. Final Assemble with Diversity (MMR-style)
     if not recommendations:
         return pd.DataFrame()
         
-    final_df = pd.concat(recommendations)
+    all_candidates = pd.concat(recommendations)
     
-    # Re-sort by final score to ensure best quality
-    final_df = final_df.sort_values('final_score', ascending=False).head(n)
+    # Get TF-IDF vectors for all candidates
+    candidate_indices = all_candidates.index.tolist()
+    candidate_vectors = tfidf_matrix[candidate_indices]
+    
+    # Diverse selection using Maximal Marginal Relevance (MMR)
+    selected = []
+    selected_indices = []
+    remaining = all_candidates.copy()
+    
+    diversity_weight = 0.3  # How much to penalize similarity to already selected
+    
+    while len(selected) < n and len(remaining) > 0:
+        if len(selected_indices) == 0:
+            # First pick: just take the best score
+            best_idx = remaining['final_score'].idxmax()
+        else:
+            # Calculate similarity to already selected games
+            selected_vectors = tfidf_matrix[selected_indices]
+            remaining_indices = remaining.index.tolist()
+            remaining_vectors = tfidf_matrix[remaining_indices]
+            
+            # Similarity of each remaining candidate to all selected
+            sim_to_selected = cosine_similarity(remaining_vectors, selected_vectors)
+            max_sim = sim_to_selected.max(axis=1)  # Max similarity to any selected
+            
+            # MMR: original_score - diversity_weight * max_similarity_to_selected
+            mmr_scores = remaining['final_score'].values - diversity_weight * max_sim
+            
+            best_pos = mmr_scores.argmax()
+            best_idx = remaining_indices[best_pos]
+        
+        selected.append(remaining.loc[best_idx])
+        selected_indices.append(best_idx)
+        remaining = remaining.drop(best_idx)
+    
+    final_df = pd.DataFrame(selected)
     
     return final_df[['title', 'genres', 'total_reviews', 'cluster', 'final_score']]
+
 
 if __name__ == "__main__":
     # Test
@@ -157,7 +192,7 @@ if __name__ == "__main__":
     
     my_blacklist = ["Assassin's Creed"]
 
-    recs = recommend_advanced(my_games, blacklist=my_blacklist, n=5)
+    recs = recommend_advanced(my_games, blacklist=my_blacklist, n=10)
     
     if recs is not None:
         print("\nTop Recommendations:")
