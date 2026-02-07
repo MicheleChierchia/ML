@@ -2,15 +2,15 @@ import pandas as pd
 import numpy as np
 import pickle
 from sklearn.metrics.pairwise import cosine_similarity
-
 import difflib
 
-# Load Model
+# Load High Precision Model
 try:
-    with open('models/steam_recommender.pkl', 'rb') as f:
+    with open('models/high_precision_clustering.pkl', 'rb') as f:
         data = pickle.load(f)
     df = data['dataframe']
     tfidf_matrix = data['matrix']
+    print(f"Loaded model: {data.get('algorithm', 'Unknown')}, Silhouette={data.get('silhouette_score', 0):.4f}")
 except FileNotFoundError:
     print("Error: Model file 'models/steam_recommender.pkl' not found.")
     exit()
@@ -28,7 +28,6 @@ def get_game_idx(title):
         return matches.index[0]
         
     # 3. Fuzzy search fallback (difflib)
-    # This is crucial for typos like "Kinght"
     all_titles = df['title'].tolist()
     close_matches = difflib.get_close_matches(title, all_titles, n=1, cutoff=0.5)
     if close_matches:
@@ -38,7 +37,15 @@ def get_game_idx(title):
         
     return None
 
-def recommend_advanced(played_games: list[str], blacklist: list[str] = None, n: int = 5):
+def recommend_advanced(
+    played_games: list[str], 
+    blacklist: list[str] = None, 
+    n: int = 5,
+    diversity_weight: float = 0.3,
+    pop_threshold: float = 3.0,
+    min_review_score: float = 0.0
+):
+
     played_indices = []
     
     print(f"Analyzing {len(played_games)} played games...")
@@ -84,12 +91,24 @@ def recommend_advanced(played_games: list[str], blacklist: list[str] = None, n: 
         # Get vectors
         cluster_matrix = tfidf_matrix[cluster_indices]
         
-        # Calculate Similarity
-        user_vector = tfidf_matrix[played_indices].mean(axis=0)
-        # Reshape for sklearn
-        user_vector = np.asarray(user_vector).reshape(1, -1)
+        # Calculate Similarity - CLUSTER SPECIFIC STRATEGY
+        # Find which of the user's played games belong to THIS cluster
+        # This ensures we recommend games similar to the SPECIFIC ones the user played in this genre/cluster
+        user_games_in_cluster_mask = played_df['cluster'] == cluster_id
+        user_indices_in_cluster = played_df[user_games_in_cluster_mask].index
         
-        sim_scores = cosine_similarity(user_vector, cluster_matrix)[0]
+        if len(user_indices_in_cluster) > 0:
+            # Create a user vector specifically for this cluster
+            # Average vector of played games ONLY in this cluster
+            cluster_user_vector = tfidf_matrix[user_indices_in_cluster].mean(axis=0)
+        else:
+            # Fallback (should rarely happen given logic): use global profile
+            cluster_user_vector = tfidf_matrix[played_indices].mean(axis=0)
+            
+        # Reshape for sklearn
+        cluster_user_vector = np.asarray(cluster_user_vector).reshape(1, -1)
+        
+        sim_scores = cosine_similarity(cluster_user_vector, cluster_matrix)[0]
         
         # Create temp dataframe for scoring
         candidates = df.loc[cluster_indices].copy()
@@ -102,17 +121,28 @@ def recommend_advanced(played_games: list[str], blacklist: list[str] = None, n: 
         pop_distance = abs(candidates['log_reviews'] - user_target_pop)
         candidates['pop_score'] = 1 / (1 + pop_distance)
         
-        # Final Score: Blend similarity with popularity alignment
-        candidates['final_score'] = candidates['similarity'] * 0.7 + candidates['pop_score'] * 0.3
+        # Quality Score from review_score (0-100 scale -> 0-1)
+        # Using review_score column as verified in steam_recommender.pkl
+        candidates['quality_score'] = candidates['review_score'].fillna(0) / 100
+        
+        # Final Score: Blend similarity, popularity, and quality
+        # Weights: 40% Similarity, 35% Popularity fit, 25% Review Score (Modified based on user feedback)
+        candidates['final_score'] = (
+            candidates['similarity'] * 0.40 + 
+            candidates['pop_score'] * 0.35 +
+            candidates['quality_score'] * 0.25
+        )
 
         # 4. Filtering
         # Exclude played games
         candidates = candidates[~candidates.index.isin(played_indices)]
         
-        # NUOVO: Filtro popolarità - escludi giochi troppo diversi dal profilo utente
-        POPULARITY_THRESHOLD = 3.0  # Max differenza in log scale (~20x in review count)
+        # Filtro popolarità - escludi giochi troppo diversi dal profilo utente
         pop_diff = abs(candidates['log_reviews'] - user_target_pop)
-        candidates = candidates[pop_diff <= POPULARITY_THRESHOLD]
+        candidates = candidates[pop_diff <= pop_threshold]
+        
+        # Filtro qualità - escludi giochi con recensioni troppo negative
+        candidates = candidates[candidates['review_score'].fillna(0) >= min_review_score]
         
         # Exclude blacklist (substring match to catch franchises)
         if blacklist:
@@ -138,8 +168,6 @@ def recommend_advanced(played_games: list[str], blacklist: list[str] = None, n: 
     selected = []
     selected_indices = []
     remaining = all_candidates.copy()
-    
-    diversity_weight = 0.3  # How much to penalize similarity to already selected
     
     while len(selected) < n and len(remaining) > 0:
         if len(selected_indices) == 0:
@@ -167,7 +195,16 @@ def recommend_advanced(played_games: list[str], blacklist: list[str] = None, n: 
     
     final_df = pd.DataFrame(selected)
     
-    return final_df[['title']]
+    if final_df.empty:
+        return None
+        
+    # Output più dettagliato
+    output_cols = ['title', 'genres', 'review_score', 'review_count', 'final_score']
+    # Check if 'features' column exists, if so add it
+    if 'features' in final_df.columns:
+        output_cols.append('features')
+        
+    return final_df[output_cols]
 
 
 if __name__ == "__main__":
@@ -203,10 +240,13 @@ if __name__ == "__main__":
     "Dead By Daylight",
     "Sifu"]
 
-    my_blacklist = ["Monster Hunter World"]
+    my_blacklist = ["Assassin's Creed"]
 
+    print("--- Recommendations for 'my_games' ---")
     recs = recommend_advanced(gio_games, blacklist=my_blacklist, n=10)
     
     if recs is not None:
         print("\nTop Recommendations:")
+        pd.set_option('display.max_colwidth', 50)
+        pd.set_option('display.width', 1000)
         print(recs.to_string(index=False))
