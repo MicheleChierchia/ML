@@ -5,14 +5,32 @@ from sklearn.metrics.pairwise import cosine_similarity
 import difflib
 
 # Load High Precision Model
+# Load High Precision Model
 try:
-    with open('models/high_precision_clustering.pkl', 'rb') as f:
+    # 1. Load original data metadata
+    df_orig = pd.read_csv('datasets/steam-games-cleaned.csv')
+    
+    # 2. Load DBSCAN model and clusters
+    with open('models/dbscan_model.pkl', 'rb') as f:
         data = pickle.load(f)
-    df = data['dataframe']
-    tfidf_matrix = data['matrix']
-    print(f"Loaded model: {data.get('algorithm', 'Unknown')}, Silhouette={data.get('silhouette_score', 0):.4f}")
-except FileNotFoundError:
-    print("Error: Model file 'models/steam_recommender.pkl' not found.")
+        
+    df_clusters = data['df_clusters']
+    
+    # 3. Merge to get full dataframe
+    # Assuming app_id is the key. 
+    if 'app_id' in df_orig.columns and 'app_id' in df_clusters.columns:
+        df = pd.merge(df_orig, df_clusters[['app_id', 'cluster']], on='app_id', how='inner')
+    else:
+        # Fallback to title match if app_id missing (unlikely)
+        df = pd.merge(df_orig, df_clusters[['title', 'cluster']], on='title', how='inner')
+        
+    # 4. Use SVD-reduced scaled matrix for similarity (fast and consistent with clustering)
+    # This is (N, 5) matrix
+    tfidf_matrix = data['cluster_matrix'] 
+    
+    print(f"Loaded model: DBSCAN, Clusters: {df['cluster'].nunique()}, Noise: {(df['cluster']==-1).sum()}")
+except Exception as e:
+    print(f"Error loading model: {e}")
     exit()
 
 def get_game_idx(title):

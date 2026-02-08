@@ -7,7 +7,7 @@ import difflib
 
 # Load Model
 try:
-    with open('models/steam_recommender.pkl', 'rb') as f:
+    with open('models/steam_recommender_hp.pkl', 'rb') as f:
         data = pickle.load(f)
     df = data['dataframe']
     tfidf_matrix = data['matrix']
@@ -172,40 +172,33 @@ def recommend_advanced(played_games: list[str], blacklist: list[str] = None, n: 
 
 if __name__ == "__main__":
     # Test
-    my_games = ["ELDEN RING" , 
-    "Baldur's Gate 3" , 
-    "Cyberpunk 2077" , 
-    "The Witcher 3: Wild Hunt" , 
-    "Fallout 3: Game of the Year Edition",
-    "Lords of the Fallen",
-    "Hades",
-    "The Elder Scrolls V: Skyrim Special Edition",
-    "DOOM Eternal",
-    "DOOM",
-    "Batman: Arkham City - Game of the Year Edition",
-    "STAR WARS Jedi: Survivor™",
-    "STAR WARS Jedi: Fallen Order™",
-    "Sekiro™: Shadows Die Twice - GOTY Edition",
-    "Marvel's Spider-Man Remastered",
-    "Dead Space (2008)",
-    "Sifu",
-    "Batman: Arkham Asylum Game of the Year Edition",
-    "Batman Arkham Kinght",
-    " Batman™: Arkham Origins",
-    "Thymesia",
-    "The Last of Us Part I",
-    "Wolfenstein the new order",
-    "Wolfenstein the new colossus"
-    ]
+    my_games = [
+    "A little to the left",
+    "Story Tellers",
+    "Unpacking",
+    "Lost in random",
+    "House Flipper"]
 
-    gio_games = ["Baldur's Gate 3", 
-    "Dying Light",
-    "Dead By Daylight",
-    "Sifu"]
+    gio_games = [
+  "Dying Light",
+  "Dead Island 2",
+  "The Long Dark",
+  "Subnautica",
+  "Sifu",
+  "Cyberpunk 2077",
+  "Resident Evil 2",
+  "Resident Evil 4",
+  "State of Decay 2",
+  "Far Cry 5",
+  "Fallout 4",
+  "Slime Rancher"
+]
 
-    my_blacklist = ["Monster Hunter World"]
+    dario_games =["Outer Wilds", "The Last of Us: Part II", "Terraria", "Baldur's Gate 3", "Ratchet and Clank: Rift Apart", "Elden Ring", "Mass Effect Legendary Edition", "Fallout 3", "Balatro", "The Binding of Isaac: Rebirth", "Half Life 2", "Assassin's Creed: Brotherhood", "Hollow Knight", "Sekiro: Shadow Die Twice", "God of War", "Death Stranding", "Portal 2", "Resident Evil", "Chants of Sennaar", "Ori and the Will of the Wisps", "Hades", "Monster Hunter: World", "Remnant: From the Ashes", "Remnant 2", "Dark Souls Remastered", "Dark Souls 3", "Bioshock", "Death's Door", "Beyond Good and Evil", "Detroit Become Human", "Far Cry 3", "Batman Arkham Asylum"]
 
-    recs = recommend_advanced(gio_games, blacklist=my_blacklist, n=10)
+    my_blacklist = []
+
+    recs = recommend_advanced(my_games, blacklist=my_blacklist, n=10)
     
     if recs is not None:
         print("\nTop Recommendations:")
